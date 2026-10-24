@@ -1,0 +1,14 @@
+# Secrets (NEVER upload)
+.env
+.env.*
+!.env.example
+
+# Python toolbox and junk
+.venv/
+__pycache__/
+*.pyc
+
+# Editor and OS junk
+.vscode/
+.DS_Store
+Thumbs.db
