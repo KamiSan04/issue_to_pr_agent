@@ -2,34 +2,28 @@ import os
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+from tools import TOOL_FUNCTIONS, TOOLS
 
 load_dotenv()
 
 MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
-MAX_STEPS = 6
+MAX_STEPS = 10
 
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
 
-def list_files(folder: str) -> str:
-    """Lists the files and folders inside a folder.
-
-    Args:
-        folder: Path of the folder, for example "."
-    """
+def run_tool(name: str, args: dict) -> str:
+    if name not in TOOLS:
+        return f"Error: unknown tool {name}"
     try:
-        names = sorted(os.listdir(folder))
-    except OSError as error:
-        return f"Error: {error}"
-    return "\n".join(names) if names else "(empty folder)"
-
-
-TOOLS = {"list_files": list_files}
+        return TOOLS[name](**args)
+    except TypeError as error:
+        return f"Error: bad arguments: {error}"
 
 
 def run_agent(task: str) -> str:
     config = types.GenerateContentConfig(
-        tools=[list_files],
+        tools=TOOL_FUNCTIONS,
         automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
     )
     contents = [types.Content(role="user", parts=[types.Part.from_text(text=task)])]
@@ -45,8 +39,9 @@ def run_agent(task: str) -> str:
         contents.append(response.candidates[0].content)
         result_parts = []
         for call in calls:
-            print(f"Step {step}: tool {call.name} {dict(call.args)}")
-            result = TOOLS[call.name](**call.args)
+            args = dict(call.args)
+            print(f"Step {step}: tool {call.name} {args}")
+            result = run_tool(call.name, args)
             result_parts.append(
                 types.Part(
                     function_response=types.FunctionResponse(
@@ -62,4 +57,9 @@ def run_agent(task: str) -> str:
 
 
 if __name__ == "__main__":
-    print(run_agent("What files are in the current folder? Summarize in one sentence."))
+    print(
+        run_agent(
+            "Create hello.txt containing 'hello robot'. "
+            "Then run git status and tell me what you see."
+        )
+    )
