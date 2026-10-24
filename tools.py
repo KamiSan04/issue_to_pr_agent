@@ -70,6 +70,7 @@ def run_git(args: str) -> str:
             capture_output=True,
             text=True,
             timeout=30,
+            stdin=subprocess.DEVNULL,
         )
     except (OSError, subprocess.TimeoutExpired) as error:
         return f"Error: {error}"
@@ -94,7 +95,8 @@ def run_tests() -> str:
     ]
     try:
         result = subprocess.run(
-            command, capture_output=True, text=True, timeout=TEST_TIMEOUT
+            command, capture_output=True, text=True, timeout=TEST_TIMEOUT,
+            stdin=subprocess.DEVNULL,
         )
     except subprocess.TimeoutExpired:
         subprocess.run(["docker", "kill", name], capture_output=True)
