@@ -1,13 +1,18 @@
+import time
 import os
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+from google.genai import errors
 from tools import TOOL_FUNCTIONS, TOOLS
 
 load_dotenv()
 
 MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 MAX_STEPS = 10
+MAX_RETRIES = 4
+STEP_PAUSE = 13
+RETRY_WAIT = 40
 
 client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
@@ -20,6 +25,19 @@ def run_tool(name: str, args: dict) -> str:
     except TypeError as error:
         return f"Error: bad arguments: {error}"
 
+def call_model(contents, config):
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            return client.models.generate_content(
+                model=MODEL, contents=contents, config=config
+            )
+        except errors.ClientError as error:
+            if error.code != 429 or attempt == MAX_RETRIES:
+                raise
+            if "PerDay" in str(error):
+                raise
+            print(f"Rate limit hit. Waiting {RETRY_WAIT} seconds...")
+            time.sleep(RETRY_WAIT)
 
 def run_agent(task: str) -> str:
     config = types.GenerateContentConfig(
@@ -29,9 +47,7 @@ def run_agent(task: str) -> str:
     contents = [types.Content(role="user", parts=[types.Part.from_text(text=task)])]
 
     for step in range(1, MAX_STEPS + 1):
-        response = client.models.generate_content(
-            model=MODEL, contents=contents, config=config
-        )
+        response = call_model(contents, config)
         calls = response.function_calls
         if not calls:
             return response.text
@@ -52,6 +68,7 @@ def run_agent(task: str) -> str:
                 )
             )
         contents.append(types.Content(role="user", parts=result_parts))
+        time.sleep(STEP_PAUSE)
 
     return "Stopped: too many steps."
 
@@ -59,7 +76,7 @@ def run_agent(task: str) -> str:
 if __name__ == "__main__":
     print(
         run_agent(
-            "Create hello.txt containing 'hello robot'. "
-            "Then run git status and tell me what you see."
+            "Run the tests. If any fail, read the code, fix the bug, "
+            "and run the tests again. Then tell me what you changed."
         )
     )

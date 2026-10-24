@@ -1,5 +1,6 @@
 import shlex
 import subprocess
+import uuid
 from pathlib import Path
 
 WORKSPACE = Path("workspace").resolve()
@@ -7,6 +8,8 @@ WORKSPACE.mkdir(exist_ok=True)
 
 ALLOWED_GIT = {"status", "diff", "log", "branch", "add", "commit", "checkout"}
 MAX_CHARS = 8000
+SANDBOX_IMAGE = "agent-sandbox"
+TEST_TIMEOUT = 120
 
 
 def _safe_path(relative: str) -> Path:
@@ -72,6 +75,33 @@ def run_git(args: str) -> str:
         return f"Error: {error}"
     return (result.stdout + result.stderr)[:MAX_CHARS] or "(no output)"
 
+def run_tests() -> str:
+    """Runs the tests in the workspace inside a locked Docker sandbox."""
+    name = f"sandbox-{uuid.uuid4().hex[:8]}"
+    command = [
+        "docker", "run", "--rm", "--name", name,
+        "--network", "none",
+        "--memory", "512m",
+        "--cpus", "1",
+        "--pids-limit", "128",
+        "--cap-drop", "ALL",
+        "--security-opt", "no-new-privileges",
+        "--read-only",
+        "--tmpfs", "/tmp",
+        "--mount", f"type=bind,source={WORKSPACE},target=/work,readonly",
+        SANDBOX_IMAGE,
+        "python", "-m", "pytest", "-q", "-p", "no:cacheprovider",
+    ]
+    try:
+        result = subprocess.run(
+            command, capture_output=True, text=True, timeout=TEST_TIMEOUT
+        )
+    except subprocess.TimeoutExpired:
+        subprocess.run(["docker", "kill", name], capture_output=True)
+        return f"Error: tests timed out after {TEST_TIMEOUT} seconds."
+    except OSError as error:
+        return f"Error: {error}"
+    return (result.stdout + result.stderr)[-MAX_CHARS:] or "(no output)"
 
-TOOL_FUNCTIONS = [list_files, read_file, write_file, run_git]
+TOOL_FUNCTIONS = [list_files, read_file, write_file, run_git, run_tests]
 TOOLS = {function.__name__: function for function in TOOL_FUNCTIONS}
